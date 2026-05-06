@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveCanvasHostConfig } from "../../extensions/canvas/runtime-api.js";
 import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { findGitRoot } from "../infra/git-root.js";
@@ -70,7 +69,7 @@ export function buildSystemPromptParams(params: {
 }
 
 function resolveCanvasRootDir(params: { config?: OpenClawConfig; stateDir: string }): string {
-  const configured = resolveCanvasHostConfig({ config: params.config }).root?.trim();
+  const configured = readCanvasHostRoot(params.config)?.trim();
   if (configured) {
     return path.resolve(
       resolveHomeRelativePath(configured, {
@@ -79,6 +78,26 @@ function resolveCanvasRootDir(params: { config?: OpenClawConfig; stateDir: strin
     );
   }
   return path.resolve(path.join(params.stateDir, "canvas"));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function readCanvasHostRoot(config?: OpenClawConfig): string | undefined {
+  const legacyHost = isRecord((config as { canvasHost?: unknown } | undefined)?.canvasHost)
+    ? (config as { canvasHost?: Record<string, unknown> }).canvasHost
+    : undefined;
+  const canvasEntry = isRecord(config?.plugins?.entries?.canvas)
+    ? config.plugins.entries.canvas
+    : undefined;
+  const pluginConfig = isRecord(canvasEntry?.config) ? canvasEntry.config : undefined;
+  const pluginHost = isRecord(pluginConfig?.host) ? pluginConfig.host : undefined;
+  return readString(pluginHost?.root) ?? readString(legacyHost?.root);
 }
 
 function resolveRepoRoot(params: {

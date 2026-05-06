@@ -1,10 +1,10 @@
-import { isCanvasHostEnabled } from "../../extensions/canvas/runtime-api.js";
 import type {
   GatewayAuthConfig,
   GatewayBindMode,
   GatewayTailscaleConfig,
 } from "../config/types.gateway.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { normalizePluginsConfig, resolveEffectiveEnableState } from "../plugins/config-state.js";
 import {
   assertGatewayAuthConfigured,
   type ResolvedGatewayAuth,
@@ -38,6 +38,36 @@ type GatewayRuntimeConfig = {
   hooksConfig: ReturnType<typeof resolveHooksConfig>;
   canvasHostEnabled: boolean;
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function readCanvasHostEnabled(config: OpenClawConfig): boolean {
+  if (process.env.OPENCLAW_SKIP_CANVAS_HOST === "1") {
+    return false;
+  }
+  const canvasPluginEnabled = resolveEffectiveEnableState({
+    id: "canvas",
+    origin: "bundled",
+    config: normalizePluginsConfig(config.plugins),
+    rootConfig: config,
+    enabledByDefault: true,
+  }).enabled;
+  if (!canvasPluginEnabled) {
+    return false;
+  }
+  const pluginEntry = isRecord(config.plugins?.entries?.canvas)
+    ? config.plugins.entries.canvas
+    : undefined;
+  const pluginConfig = isRecord(pluginEntry?.config) ? pluginEntry.config : undefined;
+  const pluginHost = isRecord(pluginConfig?.host) ? pluginConfig.host : undefined;
+  if (typeof pluginHost?.enabled === "boolean") {
+    return pluginHost.enabled;
+  }
+  const legacyHost = isRecord(config.canvasHost) ? config.canvasHost : undefined;
+  return legacyHost?.enabled !== false;
+}
 
 export async function resolveGatewayRuntimeConfig(params: {
   cfg: OpenClawConfig;
@@ -123,7 +153,7 @@ export async function resolveGatewayRuntimeConfig(params: {
   const hasSharedSecret =
     (authMode === "token" && hasToken) || (authMode === "password" && hasPassword);
   const hooksConfig = resolveHooksConfig(params.cfg);
-  const canvasHostEnabled = isCanvasHostEnabled(params.cfg);
+  const canvasHostEnabled = readCanvasHostEnabled(params.cfg);
 
   const trustedProxies = params.cfg.gateway?.trustedProxies ?? [];
   const controlUiAllowedOrigins = (params.cfg.gateway?.controlUi?.allowedOrigins ?? [])
